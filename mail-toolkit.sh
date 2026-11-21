@@ -1523,6 +1523,40 @@ action_remove_managed_config() {
 }
 
 # ------------------------------------------------------------------------------
+# Action: Stop & Disable All Mail Services
+# ------------------------------------------------------------------------------
+action_stop_services() {
+    print_header "Stop & Disable All Mail Services"
+
+    require_root_privileges "stop mail services" || return 1
+
+    info "This action stops all running mail daemons and disables them from starting on boot:"
+    printf "  * Postfix (SMTP MTA)\n" >&2
+    printf "  * Dovecot (IMAP/POP3 MDA)\n" >&2
+    printf "  * SpamAssassin (Spam filtering daemon)\n\n" >&2
+
+    if ! confirm_action "Stop and disable all mail daemons?"; then
+        warn "Service shutdown aborted by user."
+        return 0
+    fi
+
+    if [[ "${DRY_RUN}" = true ]]; then
+        dry_notice "Would run: systemctl stop postfix dovecot spamassassin"
+        dry_notice "Would run: systemctl disable postfix dovecot spamassassin"
+        success "Simulated shutdown of all mail daemons."
+        return 0
+    fi
+
+    info "Stopping mail daemons..."
+    systemctl stop postfix dovecot spamassassin 2>/dev/null || true
+    systemctl disable postfix dovecot spamassassin 2>/dev/null || true
+
+    success "All mail services have been stopped and disabled."
+    info "All mail ports (25, 110, 143, 587, 993, 995) are now closed."
+    info "To start them again at any time, run: sudo systemctl start postfix dovecot"
+}
+
+# ------------------------------------------------------------------------------
 # Interactive Menu Loop
 # ------------------------------------------------------------------------------
 show_menu() {
@@ -1539,16 +1573,17 @@ show_menu() {
         printf "  ${C_BOLD} 4)${C_RESET} Configure TLS/SSL encryption (Self-signed cert, IMAPS, POP3S)\n" >&2
         printf "  ${C_BOLD} 5)${C_RESET} Configure SpamAssassin spam filtering\n" >&2
         printf "  ${C_BOLD} 6)${C_RESET} Configure trusted LAN subnet access (Optional)\n" >&2
-        printf "  ${C_BOLD} 7)${C_RESET} Manage local mail user accounts (List / Add / Passwd)\n" >&2
+        printf "  ${C_BOLD} 7)${C_RESET} Manage local mail user accounts (List / Add / Passwd / Delete)\n" >&2
         printf "  ${C_BOLD} 8)${C_RESET} Validate configuration (Postfix & Dovecot syntax)\n" >&2
-        printf "  ${C_BOLD} 9)${C_RESET} Show service status & listening ports (25, 110, 143, 993, 995)\n" >&2
+        printf "  ${C_BOLD} 9)${C_RESET} Show service status & listening ports (25, 110, 143, 993, 995, 587)\n" >&2
         printf "  ${C_BOLD}10)${C_RESET} Show testing guide (SMTP, IMAP, POP3, TLS, Spam)\n" >&2
-        printf "  ${C_BOLD}11)${C_RESET} Remove toolkit-managed configuration\n" >&2
-        printf "  ${C_BOLD}12)${C_RESET} Exit\n" >&2
+        printf "  ${C_BOLD}11)${C_RESET} Stop & disable all mail services (Postfix, Dovecot, SpamAssassin)\n" >&2
+        printf "  ${C_BOLD}12)${C_RESET} Remove toolkit-managed configuration (Restore clean configs)\n" >&2
+        printf "  ${C_BOLD}13)${C_RESET} Exit\n" >&2
         printf "${C_BLUE}----------------------------------------------------------------------${C_RESET}\n" >&2
 
         local choice
-        read -r -p "$(printf "${C_CYAN}Select an option [1-12]: ${C_RESET}")" choice
+        read -r -p "$(printf "${C_CYAN}Select an option [1-13]: ${C_RESET}")" choice
 
         case "${choice}" in
             1) action_check_prerequisites ;;
@@ -1561,13 +1596,14 @@ show_menu() {
             8) action_validate_configuration ;;
             9) action_service_status ;;
             10) action_test_instructions ;;
-            11) action_remove_managed_config ;;
-            12|q|Q)
+            11) action_stop_services ;;
+            12) action_remove_managed_config ;;
+            13|q|Q)
                 info "Exiting Local Mail Server Toolkit. Goodbye."
                 break
                 ;;
             *)
-                error "Invalid selection: '${choice}'. Please enter a number between 1 and 12."
+                error "Invalid selection: '${choice}'. Please enter a number between 1 and 13."
                 ;;
         esac
     done
@@ -1597,6 +1633,7 @@ OPTIONS:
       --configure-lan CIDR Configure trusted LAN subnet access (e.g. 192.168.1.0/24).
       --list-users         List local user accounts and Maildir status.
       --test-guide         Print testing walkthrough for all protocols.
+      --stop               Stop and disable all mail services (Postfix, Dovecot, SpamAssassin).
       --remove             Remove toolkit-managed configuration blocks.
 
 EXAMPLES:
@@ -1674,6 +1711,10 @@ main() {
                 cli_action="test_guide"
                 shift
                 ;;
+            --stop)
+                cli_action="stop"
+                shift
+                ;;
             --remove)
                 cli_action="remove"
                 shift
@@ -1702,6 +1743,7 @@ main() {
             configure_lan) action_configure_lan "${lan_cidr}" ;;
             list_users) action_manage_users ;;
             test_guide) action_test_instructions ;;
+            stop) action_stop_services ;;
             remove) action_remove_managed_config ;;
         esac
     fi

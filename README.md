@@ -130,8 +130,9 @@ You will see the main management menu:
   8) Validate configuration (Postfix & Dovecot syntax)
   9) Show service status & listening ports (25, 110, 143, 993, 995, 587)
   10) Show testing guide (SMTP, IMAP, POP3, TLS, Spam)
-  11) Remove toolkit-managed configuration
-  12) Exit
+  11) Stop & disable all mail services (Postfix, Dovecot, SpamAssassin)
+  12) Remove toolkit-managed configuration (Restore clean configs)
+  13) Exit
 ```
 
 Execute the options in the following sequence:
@@ -326,4 +327,42 @@ sudo ./mail-toolkit.sh --configure-lan 192.168.0.0/24 --yes
 # Validate and show status
 sudo ./mail-toolkit.sh -v
 sudo ./mail-toolkit.sh -s
+
+# Stop and disable all mail daemons
+sudo ./mail-toolkit.sh --stop
+
+# Strip all toolkit-managed configuration blocks
+sudo ./mail-toolkit.sh --remove
 ```
+
+---
+
+## 7. How to Stop or Teardown Everything
+
+When you have finished demonstrating the project and want to shut down or clean up:
+
+### Method A: Stop & Disable All Services (Shutdown Mode)
+To stop the daemons, release memory, and close all listening ports (`25`, `110`, `143`, `587`, `993`, `995`):
+* **Interactive Menu:** Run `sudo ./mail-toolkit.sh` and select **Option `11`** (*Stop & disable all mail services*).
+* **CLI Flag:**
+  ```bash
+  sudo ./mail-toolkit.sh --stop
+  ```
+* **Or direct systemctl command:**
+  ```bash
+  sudo systemctl stop postfix dovecot spamassassin
+  sudo systemctl disable postfix dovecot spamassassin
+  ```
+> 💡 *To start the mail server again at any time:*  
+> `sudo systemctl start postfix dovecot`
+
+---
+
+### Method B: Clean Teardown (Remove All Configurations)
+If you want to completely remove all toolkit-managed settings and restore the original configuration files from timestamped backups:
+* **Interactive Menu:** Run `sudo ./mail-toolkit.sh` and select **Option `12`** (*Remove toolkit-managed configuration*).
+* **CLI Flag:**
+  ```bash
+  sudo ./mail-toolkit.sh --remove
+  ```
+This leaves the installed packages on the system while cleanly reverting configuration files to their original defaults.
