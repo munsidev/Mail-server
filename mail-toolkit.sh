@@ -758,7 +758,13 @@ mynetworks_style = host
 mynetworks = 127.0.0.0/8 [::1]/128
 home_mailbox = Maildir/
 smtpd_banner = \$myhostname ESMTP Local Mail Server (No Public Relay)
-smtpd_relay_restrictions = permit_mynetworks, reject
+smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+broken_sasl_auth_clients = yes
+smtpd_tls_auth_only = no
 default_transport = error:Public Internet delivery is disabled by local mail toolkit
 relay_transport = error:Public Internet relay is disabled by local mail toolkit
 biff = no
@@ -778,6 +784,14 @@ EOF
 # Local Mail Server Setup and Management Toolkit
 listen = 127.0.0.1, ::1
 protocols = imap pop3
+
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0666
+    user = postfix
+    group = postfix
+  }
+}
 EOF
 )
         dovecot_mail_content=$(cat <<EOF
@@ -799,6 +813,14 @@ EOF
 # Local Mail Server Setup and Management Toolkit
 listen = 127.0.0.1, ::1
 protocols = imap pop3
+
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0666
+    user = postfix
+    group = postfix
+  }
+}
 EOF
 )
         dovecot_mail_content=$(cat <<EOF
@@ -1112,7 +1134,13 @@ mynetworks_style = host
 mynetworks = 127.0.0.0/8 [::1]/128 ${subnet_input}
 home_mailbox = Maildir/
 smtpd_banner = \$myhostname ESMTP Local Mail Server (Trusted LAN Only)
-smtpd_relay_restrictions = permit_mynetworks, reject
+smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+broken_sasl_auth_clients = yes
+smtpd_tls_auth_only = no
 default_transport = error:Public Internet delivery is disabled by local mail toolkit
 relay_transport = error:Public Internet relay is disabled by local mail toolkit
 biff = no
@@ -1131,6 +1159,14 @@ EOF
 # Local Mail Server Setup and Management Toolkit (Dovecot 2.4+)
 listen = *, ::
 protocols = imap pop3
+
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0666
+    user = postfix
+    group = postfix
+  }
+}
 EOF
 )
         dovecot_mail_content=$(cat <<EOF
@@ -1151,6 +1187,14 @@ EOF
 # Local Mail Server Setup and Management Toolkit (Dovecot 2.3)
 listen = *, ::
 protocols = imap pop3
+
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0666
+    user = postfix
+    group = postfix
+  }
+}
 EOF
 )
         dovecot_mail_content=$(cat <<EOF
