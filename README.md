@@ -142,9 +142,10 @@ Execute the options in the following sequence:
 3. **Option `3`:** Configure local delivery. Sets up Postfix for local Maildir delivery and Dovecot for IMAP/POP3.
 4. **Option `4`:** Generate a 2048-bit RSA self-signed SSL/TLS certificate (`mail-toolkit.crt` & `mail-toolkit.key`) and configure secure listeners.
 5. **Option `5`:** Enable SpamAssassin content filtering integrated into the Postfix pipeline.
-6. **Option `6`:** Configure Trusted LAN Subnet.  
-   * When prompted, enter your home network subnet in CIDR notation (e.g., `192.168.0.0/24`).  
-   * This binds Postfix and Dovecot to all interfaces (`0.0.0.0`) and authorizes your LAN devices to send and receive emails.
+6. **Option `6`:** Configure Trusted LAN Subnet Access.  
+   * **Automatic Network Detection:** The toolkit automatically inspects the device's active network interface (via `ip route` / `ip addr` / `hostname -I`), resolves its local IP address, and calculates the exact CIDR subnet (e.g., `192.168.0.0/24`).  
+   * Press **Enter** to immediately accept the auto-detected subnet, or enter a custom CIDR notation if needed.  
+   * Binds Postfix and Dovecot to all interfaces (`0.0.0.0` / `[::]`) and authorizes your trusted LAN subnet in `mynetworks`.
 7. **Option `7`:** User Management:
    * Select **`b`** to create user **`alice`** (set password e.g., `pass1234`).
    * Select **`b`** to create user **`bob`** (set password e.g., `pass1234`).
@@ -322,7 +323,7 @@ sudo ./mail-toolkit.sh --install --yes
 sudo ./mail-toolkit.sh --configure-local --yes
 sudo ./mail-toolkit.sh --configure-ssl --yes
 sudo ./mail-toolkit.sh --configure-spam --yes
-sudo ./mail-toolkit.sh --configure-lan 192.168.0.0/24 --yes
+sudo ./mail-toolkit.sh --configure-lan --yes           # Uses auto-detected subnet, or pass custom CIDR e.g. 192.168.0.0/24
 
 # Validate and show status
 sudo ./mail-toolkit.sh -v

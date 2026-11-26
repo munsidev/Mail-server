@@ -288,8 +288,95 @@ fix_postfix_chroot_resolv_conf() {
 }
 
 # ------------------------------------------------------------------------------
-# Input Validation Helpers
+# Input Validation & Network Detection Helpers
 # ------------------------------------------------------------------------------
+detect_device_network() {
+    # Returns space-separated: "<interface> <device_ip> <calculated_subnet>"
+    local detected_ip=""
+    local detected_prefix=""
+    local detected_iface=""
+
+    # 1. Standard modern Linux via iproute2 (ip)
+    if command -v ip >/dev/null 2>&1; then
+        detected_iface="$(ip route show default 2>/dev/null | awk '/default/ {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')"
+        if [[ -n "${detected_iface}" ]]; then
+            local raw_line
+            raw_line="$(ip -4 -o addr show dev "${detected_iface}" scope global 2>/dev/null | awk '{print $4}' | head -n1)"
+            if [[ -n "${raw_line}" ]]; then
+                detected_ip="${raw_line%%/*}"
+                detected_prefix="${raw_line##*/}"
+            fi
+        fi
+
+        # Fallback to any active global IPv4 interface if default route is missing
+        if [[ -z "${detected_ip}" ]]; then
+            local raw_line
+            raw_line="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $2, $4}' | head -n1)"
+            if [[ -n "${raw_line}" ]]; then
+                detected_iface="$(awk '{print $1}' <<< "${raw_line}")"
+                local ip_cidr
+                ip_cidr="$(awk '{print $2}' <<< "${raw_line}")"
+                detected_ip="${ip_cidr%%/*}"
+                detected_prefix="${ip_cidr##*/}"
+            fi
+        fi
+    fi
+
+    # 2. Debian/Ubuntu fallback via hostname -I
+    if [[ -z "${detected_ip}" ]] && command -v hostname >/dev/null 2>&1; then
+        local first_ip
+        first_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+        if [[ -n "${first_ip}" && "${first_ip}" != "127.0.0.1" ]]; then
+            detected_ip="${first_ip}"
+            detected_prefix="24"
+            detected_iface="primary"
+        fi
+    fi
+
+    # 3. macOS fallback (for testing/development)
+    if [[ -z "${detected_ip}" ]] && command -v ifconfig >/dev/null 2>&1; then
+        local mac_dev mac_ip mac_hex
+        mac_dev="$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')"
+        [[ -z "${mac_dev}" ]] && mac_dev="en0"
+        mac_ip="$(ifconfig "${mac_dev}" 2>/dev/null | awk '/inet / && $2 !~ /^127\./ {print $2; exit}')"
+        mac_hex="$(ifconfig "${mac_dev}" 2>/dev/null | awk '/inet / && $2 !~ /^127\./ {print $4; exit}')"
+        if [[ -n "${mac_ip}" ]]; then
+            detected_ip="${mac_ip}"
+            detected_iface="${mac_dev}"
+            detected_prefix="24"
+            if [[ -n "${mac_hex}" && "${mac_hex}" =~ ^0x[0-9a-fA-F]+$ ]]; then
+                local hex_val=$(( mac_hex ))
+                local p=0
+                for ((i=31; i>=0; i--)); do
+                    if (( (hex_val >> i) & 1 )); then
+                        p=$(( p + 1 ))
+                    fi
+                done
+                (( p >= 8 && p <= 30 )) && detected_prefix="${p}"
+            fi
+        fi
+    fi
+
+    if [[ -n "${detected_ip}" && -n "${detected_prefix}" ]]; then
+        if (( detected_prefix >= 8 && detected_prefix <= 30 )); then
+            local i1 i2 i3 i4
+            IFS=. read -r i1 i2 i3 i4 <<< "${detected_ip}"
+            local ip_int=$(( (i1 << 24) + (i2 << 16) + (i3 << 8) + i4 ))
+            local mask=$(( (0xFFFFFFFF << (32 - detected_prefix)) & 0xFFFFFFFF ))
+            local net_int=$(( ip_int & mask ))
+            local n1=$(( (net_int >> 24) & 0xFF ))
+            local n2=$(( (net_int >> 16) & 0xFF ))
+            local n3=$(( (net_int >> 8) & 0xFF ))
+            local n4=$(( net_int & 0xFF ))
+            local calculated_subnet="${n1}.${n2}.${n3}.${n4}/${detected_prefix}"
+            echo "${detected_iface} ${detected_ip} ${calculated_subnet}"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 validate_ipv4_subnet() {
     local subnet="$1"
     if [[ ! "${subnet}" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]]; then
@@ -1068,11 +1155,32 @@ action_configure_lan() {
     printf "  - It must NEVER be exposed to the public internet or an untrusted network.\n" >&2
     printf "  - Only the exact CIDR subnet you specify will be authorized to submit mail.\n\n" >&2
 
+    local auto_net auto_iface auto_ip auto_subnet
+    auto_net="$(detect_device_network 2>/dev/null || true)"
+    if [[ -n "${auto_net}" ]]; then
+        read -r auto_iface auto_ip auto_subnet <<< "${auto_net}"
+        info "Checking device network configuration..."
+        printf "  * Detected Interface   : ${C_BOLD}%s${C_RESET}\n" "${auto_iface}" >&2
+        printf "  * Device IP Address    : ${C_GREEN}${C_BOLD}%s${C_RESET}\n" "${auto_ip}" >&2
+        printf "  * Calculated Subnet    : ${C_CYAN}${C_BOLD}%s${C_RESET}\n\n" "${auto_subnet}" >&2
+    fi
+
     local subnet_input=""
     if [[ -n "${1:-}" ]]; then
         subnet_input="$1"
+    elif [[ "${ASSUME_YES}" = true && -n "${auto_subnet}" ]]; then
+        subnet_input="${auto_subnet}"
+        info "Non-interactive mode: automatically selected subnet '${subnet_input}'."
     else
-        read -r -p "$(printf "${C_CYAN}Enter the trusted LAN subnet in CIDR notation (e.g., 192.168.1.0/24): ${C_RESET}")" subnet_input
+        if [[ -n "${auto_subnet}" ]]; then
+            read -r -p "$(printf "${C_CYAN}Enter trusted LAN subnet [Press Enter to accept ${auto_subnet}]: ${C_RESET}")" subnet_input
+            if [[ -z "${subnet_input}" ]]; then
+                subnet_input="${auto_subnet}"
+                info "Accepted automatically detected subnet: '${subnet_input}'."
+            fi
+        else
+            read -r -p "$(printf "${C_CYAN}Enter the trusted LAN subnet in CIDR notation (e.g., 192.168.1.0/24): ${C_RESET}")" subnet_input
+        fi
     fi
 
     if ! validate_ipv4_subnet "${subnet_input}"; then
@@ -1630,7 +1738,7 @@ OPTIONS:
       --configure-local    Configure local-only delivery (SMTP, IMAP, POP3, Maildir).
       --configure-ssl      Generate self-signed cert and configure TLS/SSL.
       --configure-spam     Configure SpamAssassin spam filtering in Postfix.
-      --configure-lan CIDR Configure trusted LAN subnet access (e.g. 192.168.1.0/24).
+      --configure-lan [CIDR] Configure trusted LAN subnet access (auto-detected if omitted).
       --list-users         List local user accounts and Maildir status.
       --test-guide         Print testing walkthrough for all protocols.
       --stop               Stop and disable all mail services (Postfix, Dovecot, SpamAssassin).
